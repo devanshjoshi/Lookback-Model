@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta,date
 
 def calculations(df):
-    df.set_index('Date',inplace=True)
+    df.set_index('Date',inplace=True)## Required to use the .resample function
     df['Returns_nifty']=df['open_nifty'].pct_change().dropna() ##Find daily returns of nifty
     df['Returns_ftse']=df['open_ftse'].pct_change().dropna() ##Find daily returns of ftse
     df['Returns_gold']=df['open_gold'].pct_change().dropna() ##Find daily returns of gold
@@ -18,7 +18,8 @@ def calculations(df):
 
 ret_nifty,ret_ftse,ret_gold=calculations(df)
 
-def rank_returns(nifty, ftse, gold):
+def rank_returns(nifty, ftse, gold): ## findthe two assets that performed best and second best for each qtr and assign 0.67 and
+    ## 0.33 weights respectively
     df = pd.DataFrame({
         'nifty': nifty,
         'ftse': ftse,
@@ -43,36 +44,36 @@ res = result.apply(find_columns, axis=1) ##finding name of 0.67 alloc column and
 pd.options.mode.chained_assignment = None ##To avoid settingwithoutcopy warning
 
 last_eq_return=[] ##Stores the value of initial capital at the end of each quarter
-opt_chain={}
+opt_chain={} ## stores put options and their respective positions in order to calculate PnL at the end of the each week.
 
 def settle_opt(u67,u33):
     PnL=0.0
     global opt_chain
-    for key,val in opt_chain.items():  ##posn,price,strike
-        opt1=val[:3]
-        opt2=val[3:]
+    for key,val in opt_chain.items(): 
+        opt1=val[:3] ## extract information pertaining to options on asset assigned 0.67 weight. -> posn,price,strike
+        opt2=val[3:] ## extract information pertaining to options on asset assigned 0.33 weight. ->posn,price,strike
         
-        if(opt1[2]>u67 and opt1[0]>0):
-            PnL+=(opt1[2]-u67)*abs(opt1[0])/100
-        if(opt1[0]<0 and opt1[2]>u67):
-            PnL-=(opt1[2]-u67)*abs(opt1[0])/100
+        if(opt1[2]>u67 and opt1[0]>0): ## check if long put is ITM at expiry for 0.67 asset
+            PnL+=(opt1[2]-u67)*abs(opt1[0])/100 ##Exercise put, payoff is K-S
+        if(opt1[0]<0 and opt1[2]>u67): ## check if short put is ITM at expiry for 0.67 asset
+            PnL-=(opt1[2]-u67)*abs(opt1[0])/100 ##PnL reduces since put is exercised
         
-        if(opt2[2]>u33 and opt2[0]>0):
-            PnL+=(opt2[2]-u33)*abs(opt2[0])/100
-        if(opt2[0]<0 and opt2[2]>u33):
-            PnL-=(opt2[2]-u33)*abs(opt2[0])/100
+        if(opt2[2]>u33 and opt2[0]>0): ## check if long put is ITM at expiry for 0.33 asset
+            PnL+=(opt2[2]-u33)*abs(opt2[0])/100 ##Exercise put, payoff is K-S
+        if(opt2[0]<0 and opt2[2]>u33): ## check if short put is ITM at expiry for 0.33 asset
+            PnL-=(opt2[2]-u33)*abs(opt2[0])/100 ##PnL reduces since put is exercised
         
-    opt_chain.clear()
+    opt_chain.clear() ## clear options chain after calculating PnL
     return PnL
         
 def calc(start,end,col_67,col_33,df,init_cap):
     global last_eq_return
     global opt_chain
     
-    dt1=pd.Timestamp(start+timedelta(days=1)).normalize()
+    dt1=pd.Timestamp(start+timedelta(days=1)).normalize() ## Assume we calculate qtrly returns till day before start
     dt2=(pd.Timestamp(end).normalize())  
     df=df.loc[(df['Date']>=dt1) & (df['Date']<=dt2)] ##filter dataframe between start and end dates for convenience
-    df.reset_index(inplace=True,drop=True)
+    df.reset_index(inplace=True,drop=True) 
     
     delta_1=((init_cap*0.67)/df[f'open_{col_67}'][0])/100 ##delta of long asset1(0.67) position
     delta_2=((init_cap*0.33)/df[f'open_{col_33}'][0])/100 ##delta of long asset2(0.33) position
@@ -84,22 +85,21 @@ def calc(start,end,col_67,col_33,df,init_cap):
     df['opt_posn_1'][0]=(delta_1/abs(df[f'delta_{col_67}'][0])) ##no of put contracts for delta=0 for 0.67 asset
     df['opt_posn_2'][0]=(delta_2/abs(df[f'delta_{col_33}'][0])) ##no of put contracts for delta=0 for 0.33 asset
     df['opt_PnL'][0]=-(df['opt_posn_1'][0]*df[f'put_price_{col_67}'][0]+df['opt_posn_2'][0]*df[f'put_price_{col_33}'][0])
+    ##initial PnL for the two puts on 0.67 and 0.33 asset
     
-    df[f'PnL_{col_67}'][0]=(1+df[f'Returns_{col_67}'][0])*0.67*init_cap 
-    df[f'PnL_{col_33}'][0]=(1+df[f'Returns_{col_33}'][0])*0.33*init_cap
+    df[f'PnL_{col_67}'][0]=(1+df[f'Returns_{col_67}'][0])*0.67*init_cap ##initial PnL for long posn in 0.67 asset
+    df[f'PnL_{col_33}'][0]=(1+df[f'Returns_{col_33}'][0])*0.33*init_cap ##initial PnL for long posn in 0.67 asset
     
     
     opt_chain[0]=[df['opt_posn_1'][0],df[f'put_price_{col_67}'][0],df[f'open_{col_67}'][0],
-                 df['opt_posn_2'][0],df[f'put_price_{col_33}'][0],df[f'open_{col_33}'][0],] ##posn,price,strike
+                 df['opt_posn_2'][0],df[f'put_price_{col_33}'][0],df[f'open_{col_33}'][0],] ## store posn,price,strike for option positions that have been entered into for the purpose of delta hedging
     
          
     day=1 ## Assuming options have weekly expiry, start at day=1 for index=0 above
     for i in range(1,df.shape[0]): ##iterate over remaining days in the qtr
-#         df['eq1_PnL'][i]=(1+df[f'Returns_{col_67}'][i])*df['eq1_PnL'][i-1] ##value of long posn in 0.67 asset
-#         df['eq2_PnL'][i]=(1+df[f'Returns_{col_33}'][i])*df['eq2_PnL'][i-1] ##value of long posn in 0.33 asset
         
-        df[f'PnL_{col_67}'][i]=(1+df[f'Returns_{col_67}'][i])*df[f'PnL_{col_67}'][i-1] 
-        df[f'PnL_{col_33}'][i]=(1+df[f'Returns_{col_33}'][i])*df[f'PnL_{col_33}'][i-1]
+        df[f'PnL_{col_67}'][i]=(1+df[f'Returns_{col_67}'][i])*df[f'PnL_{col_67}'][i-1] ##value of long 0.67 asset posn
+        df[f'PnL_{col_33}'][i]=(1+df[f'Returns_{col_33}'][i])*df[f'PnL_{col_33}'][i-1] ##value of long 0.33 asset posn
 
         day+=1 ##increment no. of days by 1
         
@@ -108,7 +108,7 @@ def calc(start,end,col_67,col_33,df,init_cap):
             df['opt_PnL'][i]+=settle_opt(df[f'open_{col_67}'][i],df[f'open_{col_33}'][i])
             last_eq_return.append(init_cap*(((1+df[f'Returns_{col_67}']).prod())*0.67 + ((1+df[f'Returns_{col_33}']).prod())*0.33))
             
-        elif(day%5==0):
+        elif(day%5==0): ##If we reach end of the week, settle options positions and rollover the delta hedge
             day=1
             df['opt_PnL'][i]+=settle_opt(df[f'open_{col_67}'][i],df[f'open_{col_33}'][i])
             df['opt_posn_1'][i]=(delta_1/abs(df[f'delta_{col_67}'][i]))
@@ -117,14 +117,12 @@ def calc(start,end,col_67,col_33,df,init_cap):
             opt_chain[day]=[df['opt_posn_1'][i],df[f'put_price_{col_67}'][i],df[f'open_{col_67}'][i],
                  df['opt_posn_2'][i],df[f'put_price_{col_33}'][i],df[f'open_{col_33}'][i],] ##posn,price,strike
             
-        else:
+        else: ##Adjust delta of your initial options position based on the new delta of the put option to remain delta neutral
             delta_p1=(delta_1-df['opt_posn_1'][i-1]*abs(df[f'delta_{col_67}'][i]))
             delta_p2=(delta_2-df['opt_posn_2'][i-1]*abs(df[f'delta_{col_33}'][i]))
             df['opt_posn_1'][i]=delta_p1/abs(df[f'delta_{col_67}'][i])
             df['opt_posn_2'][i]=delta_p2/abs(df[f'delta_{col_33}'][i])
             df['opt_PnL'][i]=-(df['opt_posn_1'][i]*df[f'put_price_{col_67}'][i]+df['opt_posn_2'][i]*df[f'put_price_{col_33}'][i])
-#             opt_chain[day]=[df['opt_posn_1'][i],df[f'put_price_{col_67}'][i],df[f'open_{col_67}'][i],
-#                  df['opt_posn_2'][i],df[f'put_price_{col_33}'][i],df[f'open_{col_33}'][i],] ##posn,price,strike
             key=0 if 0 in opt_chain else 1
             opt_chain[day]=[df['opt_posn_1'][i],df[f'put_price_{col_67}'][i],opt_chain[key][2],
                  df['opt_posn_2'][i],df[f'put_price_{col_33}'][i],opt_chain[key][5]]
@@ -133,9 +131,9 @@ def calc(start,end,col_67,col_33,df,init_cap):
 df_res=df.copy()
 df_res['opt_PnL'] = 0.0 #initialise option PnL
 
-df_res['PnL_nifty']=0.0
-df_res['PnL_ftse']=0.0 
-df_res['PnL_gold']=0.0 
+df_res['PnL_nifty']=0.0 #initialise nifty PnL
+df_res['PnL_ftse']=0.0 #initialise ftse PnL
+df_res['PnL_gold']=0.0 #initialise gold PnL
 
 dates=[] ## to match dates when analyzing performance
 
@@ -173,16 +171,15 @@ for i in range(len(result) - 1): #iterate over quarters
     
 df_res=df_res.loc[(df_res['opt_PnL']!=0.0)]
 df_res.reset_index(inplace=True,drop=True)
-df_res['total'] = df_res[['PnL_nifty', 'PnL_ftse', 'PnL_gold','opt_PnL']].sum(axis=1)
-# df_res['total_wo'] = df_res[['PnL_nifty', 'PnL_ftse', 'PnL_gold']].sum(axis=1)
+df_res['total'] = df_res[['PnL_nifty', 'PnL_ftse', 'PnL_gold','opt_PnL']].sum(axis=1) ##Find total return on each day
 df_res.dropna(inplace=True)
 df_res.set_index('Date',inplace=True)
 
 import math
-def analyze(returns,rf,prices):
+def analyze(returns,rf,prices): ##Helper function to find some evaluation metrics and plot cumulative returns plot
     
     def sharpe(returns,rf):
-        rf_daily=math.pow(1+rf,1/252)-1
+        rf_daily=math.pow(1+rf,1/252)-1 ##convert to daily return
         excess_returns = returns - rf_daily
         sharpe=(excess_returns.mean()/excess_returns.std())*np.sqrt(252)
         return sharpe
