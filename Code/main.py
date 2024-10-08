@@ -6,6 +6,7 @@ from datetime import datetime, timedelta,date
 import os
 import base64
 import io
+import math
 
 def calculations(df):
     df.set_index('Date',inplace=True)## Required to use the .resample function
