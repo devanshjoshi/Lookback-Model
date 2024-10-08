@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta,date
+import os
+import base64
+import io
 
 def calculations(df):
     df.set_index('Date',inplace=True)## Required to use the .resample function
@@ -175,56 +178,87 @@ df_res['total'] = df_res[['PnL_nifty', 'PnL_ftse', 'PnL_gold','opt_PnL']].sum(ax
 df_res.dropna(inplace=True)
 df_res.set_index('Date',inplace=True)
 
-import math
-def analyze(returns,rf,prices): ##Helper function to find some evaluation metrics and plot cumulative returns plot
-    
-    def sharpe(returns,rf):
-        rf_daily=math.pow(1+rf,1/252)-1 ##convert to daily return
+output_dir = "Results"
+os.makedirs(output_dir, exist_ok=True)
+
+def save_analysis_to_html(file_name, start_date, end_date, sharpe, cum_return, cagr, sortino, vol, mdd, prices):
+    with open(file_name, 'w') as f:
+        f.write(f"<html><body>")
+        f.write(f"<h2>Analysis Report</h2>")
+        f.write(f"<p><b>Start Date:</b> {start_date}</p>")
+        f.write(f"<p><b>End Date:</b> {end_date}</p>")
+        f.write(f"<p><b>Sharpe Ratio:</b> {sharpe:.2f}</p>")
+        f.write(f"<p><b>Cumulative Return:</b> {cum_return:.2f}%</p>")
+        f.write(f"<p><b>CAGR:</b> {cagr:.2f}%</p>")
+        f.write(f"<p><b>Sortino Ratio:</b> {sortino:.2f}</p>")
+        f.write(f"<p><b>Annualised Volatility:</b> {vol:.2f}%</p>")
+        f.write(f"<p><b>Maximum Drawdown:</b> {mdd:.2f}%</p>")
+        f.write(f"<h3>Performance Chart</h3>")
+
+        # Create the plot and convert it to a base64 string
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.plot(prices / prices[0])
+        ax.set_title('Cumulative Performance')
+        ax.set_xlabel('Date')
+        ax.set_ylabel('Normalized Value')
+
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png')
+        plt.close(fig)
+        img_buffer.seek(0)
+
+        img_base64 = base64.b64encode(img_buffer.read()).decode('utf-8')
+        f.write(f'<img src="data:image/png;base64,{img_base64}" alt="Performance Chart">')
+
+        f.write(f"</body></html>")
+
+def analyze_and_save(returns, rf, prices, start_date, end_date):
+    def sharpe(returns, rf):
+        rf_daily = math.pow(1 + rf, 1 / 252) - 1
         excess_returns = returns - rf_daily
-        sharpe=(excess_returns.mean()/excess_returns.std())*np.sqrt(252)
-        return sharpe
+        return (excess_returns.mean() / excess_returns.std()) * np.sqrt(252)
     
     def cumret(returns):
-        return ((1+returns).prod()-1)*100
-    
-    def cagr(returns):
-        return (math.pow((1+returns).prod(),252/len(returns))-1)*100
+        return ((1 + returns).prod() - 1) * 100
 
-    def sortino(returns,rf):
-        rf_daily=math.pow(1+rf,1/252)-1
+    def cagr(returns):
+        return (math.pow((1 + returns).prod(), 252 / len(returns)) - 1) * 100
+
+    def sortino(returns, rf):
+        rf_daily = math.pow(1 + rf, 1 / 252) - 1
         excess_returns = returns - rf_daily
-        mean_excess_return = excess_returns.mean()
         downside_returns = excess_returns[excess_returns < 0]
         downside_deviation = downside_returns.std()
-        sortino = (mean_excess_return / downside_deviation)* np.sqrt(252)
-        return sortino
+        return (excess_returns.mean() / downside_deviation) * np.sqrt(252)
 
     def vol(returns): 
-        return returns.std()*np.sqrt(252)*100
+        return returns.std() * np.sqrt(252) * 100
 
     def MDD(price_series):
         cumulative_return = (1 + price_series.pct_change().fillna(0)).cumprod()
         peak = cumulative_return.cummax()
         drawdown = (cumulative_return - peak) / peak
-        max_drawdown = drawdown.min()
-        return max_drawdown*100
+        return drawdown.min() * 100
     
-    s1=sharpe(returns,rf)
-    s2=cumret(returns)
-    s3=cagr(returns)
-    s4=sortino(returns,rf)
-    s5=vol(returns)
-    s6=MDD(prices)
-    print(f"Sharpe:{s1:.2f}\nCumulative Return:{s2:.2f}%\nCAGR:{s3:.2f}%\nSortino:{s4:.2f}\nAnnualised Vol:{s5:.2f}%\nMaximum Drawdown:{s6:.2f}%")
-    plt.figure(figsize=(10,8))
-    plt.plot(prices/prices[0])
+    # Calculate metrics
+    s1 = sharpe(returns, rf)
+    s2 = cumret(returns)
+    s3 = cagr(returns)
+    s4 = sortino(returns, rf)
+    s5 = vol(returns)
+    s6 = MDD(prices)
     
-    plt.show()
+    # Generate unique file name based on dates
+    file_name = os.path.join(output_dir, f"analysis_{start_date}_{end_date}.html")
+    save_analysis_to_html(file_name, start_date, end_date, s1, s2, s3, s4, s5, s6, prices)
 
-for i in range(0,len(dates),12):
-    start=pd.Timestamp(dates[i][0]).normalize()
-    end=pd.Timestamp(dates[min(i+11,len(dates)-1)][1]).normalize()
-    print("Start Date:",start.date(),"End Date:",end.date())
-    analyze((df_res['total'][start:end]).pct_change().dropna(),0.05,df_res['total'][start+timedelta(days=1):end])
-    
-    print("\n---x---x---\n")
+# Loop to create HTML files for each time period
+for i in range(0, len(dates), 12):
+    start = pd.Timestamp(dates[i][0]).normalize()
+    end = pd.Timestamp(dates[min(i + 11, len(dates) - 1)][1]).normalize()
+    analyze_and_save((df_res['total'][start:end]).pct_change().dropna(), 0.05, df_res['total'][start + timedelta(days=1):end], start.date(), end.date())
+
+
+
+
+
