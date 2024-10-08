@@ -1,1 +1,1 @@
-Please refer to Documentation.pdf for a detailed overview. /Data contains all csv files necessary to run the code. /Code contains two filies, data.py and main.py. Import both into the same folder then run main.py
+Please refer to Documentation.pdf for a detailed overview. /Data contains all csv files necessary to run the code. /Code contains two filies, data.py and main.py. Import both into the same folder then run main.py. /Results contains .html files for the performance for each 3 year product cycle.
