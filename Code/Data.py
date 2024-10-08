@@ -16,7 +16,7 @@ start=date(2000,10,4)
 df_nifty=pd.read_csv('/Users/devanshjoshi/tensorflow-test/Algo Trading/DPA/Nifty 50 Historical Data.csv')
 df_gold=pd.read_csv('/Users/devanshjoshi/tensorflow-test/Algo Trading/DPA/XAU_USD.csv')
 def parse_dates(date_str):
-    date_formats = ['%m/%d/%y', '%m/%d/%Y', '%Y-%m-%d']
+    date_formats = ['%m/%d/%y', '%m/%d/%Y', '%Y-%m-%d'] ## Check for any of these formats
     for fmt in date_formats:
         try:
             return pd.to_datetime(date_str, format=fmt)
@@ -30,7 +30,7 @@ df_gold['Date']=df_gold['Date'].apply(parse_dates)
 df_gold=df_gold[['Date','Open']]
 
 def fetch_data(ticker, start_date, end_date, existing_df=None):
-    data = Ticker(ticker)
+    data = Ticker(ticker) ## using yahooquery's Ticker function to fetch data
     try:
         new_data = data.history(start=start_date, end=end_date)
         
@@ -117,18 +117,18 @@ merged_df['int_gold']=merged_df['int_nifty']/100
 
 
 def calculate_black_scholes_options(df):
-    def black_scholes_put(S, K, T, r, sigma):
+    def black_scholes_put(S, K, T, r, sigma): ##Function to calculate put option price using BSM Model
         d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
         put_price = K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
         return put_price
 
-    def black_scholes_delta(S, K, T, r, sigma):
+    def black_scholes_delta(S, K, T, r, sigma): ##Function to calculate put option delta using BSM Model
         d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         delta = -norm.cdf(-d1)
         return delta
 
-    T = 5 / 365
+    T = 5 / 365 ## Options have been assumed to be weekly options
 
     df['put_price_nifty'] = black_scholes_put(
         S=df['open_nifty'], K=df['open_nifty'], T=T, 
